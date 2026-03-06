@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "click>=8.1.8",
+    "httpx>=0.28.1",
     "python-dotenv>=1.1.1",
     "pyyaml>=6.0.2",
     "rich>=14.1.0",
