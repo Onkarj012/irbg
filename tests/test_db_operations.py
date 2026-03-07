@@ -8,10 +8,10 @@ from irbg.db.operations import (
     create_benchmark_run,
     insert_response,
     upsert_model,
+    upsert_scenario,
 )
 from irbg.db.schema import create_tables
 from irbg.scenarios.models import Scenario
-from irbg.db.operations import upsert_scenario
 
 
 def test_insert_model_run_and_response(tmp_path: Path) -> None:
