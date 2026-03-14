@@ -1,9 +1,0 @@
-{
-    "id": "SMOKE-001",
-    "pillar": "smoke",
-    "category": "demo",
-    "jurisdiction": "general",
-    "difficulty": "easy",
-    "system_prompt": "You are a careful legal reasoning assistant working for a public-sector AI evaluation team. Respond clearly and concisely.",
-    "user_prompt": "In exactly three bullet points, explain why transparent reasoning matters when AI systems are used in courts and government."
-}

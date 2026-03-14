@@ -123,10 +123,14 @@ def mark_benchmark_run_failed(
     conn.commit()
 
 
-def upsert_scenario(
+def upsert_scenario_record(
     conn: sqlite3.Connection,
     *,
-    scenario: Scenario,
+    id: str,
+    pillar: str,
+    category: str,
+    jurisdiction: str | None,
+    difficulty: str | None,
 ) -> None:
     conn.execute(
         """
@@ -141,15 +145,30 @@ def upsert_scenario(
         VALUES (?, ?, ?, ?, ?, ?);
         """,
         (
-            scenario.id,
-            scenario.pillar,
-            scenario.category,
-            scenario.jurisdiction,
-            scenario.difficulty,
+            id,
+            pillar,
+            category,
+            jurisdiction,
+            difficulty,
             now_utc_iso(),
         ),
     )
     conn.commit()
+
+
+def upsert_scenario(
+    conn: sqlite3.Connection,
+    *,
+    scenario: Scenario,
+) -> None:
+    upsert_scenario_record(
+        conn,
+        id=scenario.id,
+        pillar=scenario.pillar,
+        category=scenario.category,
+        jurisdiction=scenario.jurisdiction,
+        difficulty=scenario.difficulty,
+    )
 
 
 def insert_response(

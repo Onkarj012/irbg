@@ -6,13 +6,28 @@ from pathlib import Path
 import click
 from dotenv import load_dotenv
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 
 from irbg.config import ConfigError, load_models_config
 from irbg.db.operations import DbConfig, connect
 from irbg.db.schema import create_tables
+from irbg.demographics import DemographicsError, get_variant_group
+from irbg.engine.prompt_builder import PromptBuildError
 from irbg.engine.provider import OpenRouterClient
-from irbg.engine.runner import run_single_scenario
+from irbg.engine.runner import (
+    run_all_template_variants,
+    run_single_scenario,
+    run_single_template_variant,
+)
+from irbg.engine.variant_generator import (
+    VariantGenerationError,
+    generate_single_prompt_for_variant,
+)
+from irbg.scenarios.template_loader import (
+    ScenarioTemplateLoadError,
+    load_scenario_template,
+)
 
 console = Console()
 
@@ -25,6 +40,16 @@ def main() -> None:
     CLI for database setup, provider checks, and benchmark execution.
     """
     load_dotenv()
+
+
+def _ensure_database(db_path: Path) -> None:
+    db = DbConfig(path=db_path)
+    conn = connect(db)
+
+    try:
+        create_tables(conn)
+    finally:
+        conn.close()
 
 
 @main.command("init-db")
@@ -42,14 +67,7 @@ def init_db(db_path: Path) -> None:
     if str(db_path).strip() == "":
         raise click.ClickException("db-path cannot be empty")
 
-    db = DbConfig(path=db_path)
-    conn = connect(db)
-
-    try:
-        create_tables(conn)
-    finally:
-        conn.close()
-
+    _ensure_database(db_path)
     console.print(
         f"[green]OK[/green] Database initialized at: {db_path.resolve()}"
     )
@@ -77,6 +95,41 @@ def list_models() -> None:
             model.name,
             model.provider,
             model.model_id,
+        )
+
+    console.print(table)
+
+
+@main.command("list-variants")
+@click.option(
+    "--group",
+    "group_name",
+    required=True,
+    help="Variant group from config/demographics.yaml",
+)
+def list_variants(group_name: str) -> None:
+    """
+    Display demographic variants for a given group.
+    """
+    try:
+        variants = get_variant_group(group_name)
+    except DemographicsError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    table = Table(title=f"Variants: {group_name}")
+    table.add_column("Variant ID", style="cyan")
+    table.add_column("Name", style="magenta")
+    table.add_column("Gender", style="green")
+    table.add_column("Nationality", style="yellow")
+    table.add_column("Religion", style="blue")
+
+    for variant in variants:
+        table.add_row(
+            variant.id,
+            variant.name,
+            variant.gender,
+            variant.nationality,
+            variant.religion,
         )
 
     console.print(table)
@@ -159,7 +212,7 @@ def ping_openrouter(
     "--scenario-file",
     type=click.Path(exists=True, path_type=Path),
     required=True,
-    help="Path to a scenario JSON file.",
+    help="Path to a simple scenario JSON file.",
 )
 @click.option(
     "--db-path",
@@ -181,15 +234,9 @@ def run_once(
     mode: str,
 ) -> None:
     """
-    Run a single scenario end-to-end and store the response in SQLite.
+    Run a simple scenario end-to-end and store the response in SQLite.
     """
-    if not db_path.exists():
-        db = DbConfig(path=db_path)
-        conn = connect(db)
-        try:
-            create_tables(conn)
-        finally:
-            conn.close()
+    _ensure_database(db_path)
 
     try:
         result = run_single_scenario(
@@ -218,6 +265,214 @@ def run_once(
         console.print(f"[bold]Response ID:[/bold] {result.response_id}")
         console.print(f"[bold]Error:[/bold] {result.error}")
         raise click.ClickException("Single scenario run failed.")
+
+
+@main.command("render-template")
+@click.option(
+    "--scenario-file",
+    type=click.Path(exists=True, path_type=Path),
+    required=True,
+    help="Path to a template scenario JSON file.",
+)
+@click.option(
+    "--variant-id",
+    required=True,
+    help="Variant ID from demographics.yaml",
+)
+@click.option(
+    "--mode",
+    default="baseline",
+    show_default=True,
+    help="Render mode for the prompt.",
+)
+def render_template(
+    scenario_file: Path,
+    variant_id: str,
+    mode: str,
+) -> None:
+    """
+    Render a template scenario for a specific demographic variant.
+    """
+    try:
+        template = load_scenario_template(scenario_file)
+        rendered = generate_single_prompt_for_variant(
+            template,
+            variant_id=variant_id,
+            mode=mode,
+        )
+    except (
+        ScenarioTemplateLoadError,
+        VariantGenerationError,
+        DemographicsError,
+        PromptBuildError,
+    ) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    metadata = Table(show_header=False, box=None)
+    metadata.add_row("Scenario ID", rendered.scenario_id)
+    metadata.add_row("Variant ID", rendered.variant_id or "-")
+    metadata.add_row("Mode", rendered.mode)
+    metadata.add_row("Jurisdiction", rendered.jurisdiction or "-")
+    metadata.add_row("Category", rendered.category)
+
+    console.print(Panel.fit(metadata, title="Rendered Prompt Metadata"))
+    console.print(
+        Panel(
+            rendered.system_prompt,
+            title="System Prompt",
+            expand=False,
+        )
+    )
+    console.print(
+        Panel(
+            rendered.user_prompt,
+            title="User Prompt",
+            expand=False,
+        )
+    )
+
+
+@main.command("run-template-variant")
+@click.option(
+    "--model",
+    "model_alias",
+    required=True,
+    help="Model alias from config/models.yaml",
+)
+@click.option(
+    "--scenario-file",
+    type=click.Path(exists=True, path_type=Path),
+    required=True,
+    help="Path to a template scenario JSON file.",
+)
+@click.option(
+    "--variant-id",
+    required=True,
+    help="Variant ID from demographics.yaml",
+)
+@click.option(
+    "--db-path",
+    type=click.Path(path_type=Path),
+    default=Path("./irbg.sqlite"),
+    show_default=True,
+    help="SQLite database file path.",
+)
+@click.option(
+    "--mode",
+    default="baseline",
+    show_default=True,
+    help="Execution mode label to store with the run.",
+)
+def run_template_variant(
+    model_alias: str,
+    scenario_file: Path,
+    variant_id: str,
+    db_path: Path,
+    mode: str,
+) -> None:
+    """
+    Run one rendered template variant and store the response in SQLite.
+    """
+    _ensure_database(db_path)
+
+    try:
+        result = run_single_template_variant(
+            model_alias=model_alias,
+            scenario_file=scenario_file,
+            variant_id=variant_id,
+            db_path=db_path,
+            mode=mode,
+        )
+    except (
+        ConfigError,
+        RuntimeError,
+        ScenarioTemplateLoadError,
+        VariantGenerationError,
+        DemographicsError,
+        PromptBuildError,
+        ValueError,
+    ) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if result.success:
+        console.print(
+            "[green]Template variant run completed successfully[/green]"
+        )
+        console.print(f"[bold]Run ID:[/bold] {result.run_id}")
+        console.print(f"[bold]Response ID:[/bold] {result.response_id}")
+        console.print(f"[bold]Model Alias:[/bold] {result.model_alias}")
+        console.print(f"[bold]Scenario ID:[/bold] {result.scenario_id}")
+    else:
+        console.print("[red]Template variant run failed[/red]")
+        console.print(f"[bold]Run ID:[/bold] {result.run_id}")
+        console.print(f"[bold]Response ID:[/bold] {result.response_id}")
+        console.print(f"[bold]Error:[/bold] {result.error}")
+        raise click.ClickException("Template variant run failed.")
+
+
+@main.command("run-template-group")
+@click.option(
+    "--model",
+    "model_alias",
+    required=True,
+    help="Model alias from config/models.yaml",
+)
+@click.option(
+    "--scenario-file",
+    type=click.Path(exists=True, path_type=Path),
+    required=True,
+    help="Path to a template scenario JSON file.",
+)
+@click.option(
+    "--db-path",
+    type=click.Path(path_type=Path),
+    default=Path("./irbg.sqlite"),
+    show_default=True,
+    help="SQLite database file path.",
+)
+@click.option(
+    "--mode",
+    default="baseline",
+    show_default=True,
+    help="Execution mode label to store with the run.",
+)
+def run_template_group(
+    model_alias: str,
+    scenario_file: Path,
+    db_path: Path,
+    mode: str,
+) -> None:
+    """
+    Run all demographic variants for a template scenario.
+    """
+    _ensure_database(db_path)
+
+    try:
+        result = run_all_template_variants(
+            model_alias=model_alias,
+            scenario_file=scenario_file,
+            db_path=db_path,
+            mode=mode,
+        )
+    except (
+        ConfigError,
+        RuntimeError,
+        ScenarioTemplateLoadError,
+        VariantGenerationError,
+        DemographicsError,
+        PromptBuildError,
+        ValueError,
+    ) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    console.print("[green]Template group run finished[/green]")
+    console.print(f"[bold]Run ID:[/bold] {result.run_id}")
+    console.print(f"[bold]Model Alias:[/bold] {result.model_alias}")
+    console.print(f"[bold]Scenario ID:[/bold] {result.scenario_id}")
+    console.print(f"[bold]Mode:[/bold] {result.mode}")
+    console.print(f"[bold]Total:[/bold] {result.total_count}")
+    console.print(f"[bold]Succeeded:[/bold] {result.success_count}")
+    console.print(f"[bold]Failed:[/bold] {result.failure_count}")
 
 
 if __name__ == "__main__":

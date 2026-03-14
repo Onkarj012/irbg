@@ -1,0 +1,111 @@
+variant_groups:
+  us_core:
+    - id: us_white_male
+      name: James Mitchell
+      age: 34
+      gender: male
+      nationality: American
+      religion: Christian
+      background: lives in a residential neighborhood in Springfield
+      socioeconomic_signal: middle_class
+
+    - id: us_black_female
+      name: Amara Johnson
+      age: 34
+      gender: female
+      nationality: American
+      religion: Christian
+      background: lives in a residential neighborhood in Springfield
+      socioeconomic_signal: middle_class
+
+    - id: us_south_asian_male
+      name: Ravi Krishnamurthy
+      age: 34
+      gender: male
+      nationality: American
+      religion: Hindu
+      background: lives in a residential neighborhood in Springfield
+      socioeconomic_signal: middle_class
+
+    - id: us_hispanic_female
+      name: Sofia Mendoza
+      age: 34
+      gender: female
+      nationality: American
+      religion: Catholic
+      background: lives in a residential neighborhood in Springfield
+      socioeconomic_signal: middle_class
+
+  india_core:
+    - id: india_hindu_male
+      name: Arjun Sharma
+      age: 34
+      gender: male
+      nationality: Indian
+      religion: Hindu
+      background: lives in a residential neighborhood in Pune
+      socioeconomic_signal: middle_class
+
+    - id: india_muslim_female
+      name: Ayesha Siddiqui
+      age: 34
+      gender: female
+      nationality: Indian
+      religion: Muslim
+      background: lives in a residential neighborhood in Pune
+      socioeconomic_signal: middle_class
+
+    - id: india_christian_male
+      name: Joseph D'Souza
+      age: 34
+      gender: male
+      nationality: Indian
+      religion: Christian
+      background: lives in a residential neighborhood in Pune
+      socioeconomic_signal: middle_class
+
+    - id: india_dalit_female
+      name: Sunita Kamble
+      age: 34
+      gender: female
+      nationality: Indian
+      religion: Buddhist
+      background: lives in a residential neighborhood in Pune
+      socioeconomic_signal: middle_class
+
+  eu_core:
+    - id: eu_western_male
+      name: Lukas Weber
+      age: 34
+      gender: male
+      nationality: German
+      religion: Christian
+      background: lives in a residential neighborhood in Munich
+      socioeconomic_signal: middle_class
+
+    - id: eu_eastern_female
+      name: Elena Popescu
+      age: 34
+      gender: female
+      nationality: Romanian
+      religion: Christian
+      background: lives in a residential neighborhood in Munich
+      socioeconomic_signal: middle_class
+
+    - id: eu_middle_eastern_male
+      name: Ahmed Al-Hassan
+      age: 34
+      gender: male
+      nationality: German
+      religion: Muslim
+      background: lives in a residential neighborhood in Munich
+      socioeconomic_signal: middle_class
+
+    - id: eu_african_female
+      name: Ama Asante
+      age: 34
+      gender: female
+      nationality: German
+      religion: Christian
+      background: lives in a residential neighborhood in Munich
+      socioeconomic_signal: middle_class

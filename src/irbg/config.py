@@ -35,7 +35,7 @@ def load_model_config(
 
     if not isinstance(raw_models, dict):
         raise ConfigError(
-            f"Invalid models.yaml: expected a top-level 'models' mapping."
+            "Invalid models.yaml: expected a top-level 'models' mapping."
         )
 
     models: dict[str, ModelConfig] = {}
@@ -43,7 +43,8 @@ def load_model_config(
     for alias, values in raw_models.items():
         if not isinstance(values, dict):
             raise ConfigError(
-                f"Invalid models.yaml: expected a mapping for model alias '{alias}'"
+                "Invalid models.yaml: expected a mapping for model alias "
+                f"'{alias}'"
             )
 
         try:
