@@ -18,7 +18,6 @@ def render_prompt(
     mode: str,
     variant_id: str | None = None,
 ) -> RenderedPrompt:
-
     merged_variables = {**template.static_variables, **variables}
 
     overlay = _resolve_mode_overlay(template, mode)

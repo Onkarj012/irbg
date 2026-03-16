@@ -222,3 +222,142 @@ def insert_response(
     )
     conn.commit()
     return response_id
+
+
+def upsert_pillar_score(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    pillar: str,
+    score: float,
+    breakdown_json: str | None,
+    notes: str | None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO pillar_scores (
+            id,
+            run_id,
+            pillar,
+            score,
+            breakdown_json,
+            notes,
+            created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(run_id, pillar) DO UPDATE SET
+            score = excluded.score,
+            breakdown_json = excluded.breakdown_json,
+            notes = excluded.notes,
+            created_at = excluded.created_at;
+        """,
+        (
+            new_id(),
+            run_id,
+            pillar,
+            score,
+            breakdown_json,
+            notes,
+            now_utc_iso(),
+        ),
+    )
+    conn.commit()
+
+
+def list_benchmark_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    rows = conn.execute(
+        """
+        SELECT
+            id,
+            model_id,
+            mode,
+            status,
+            started_at,
+            completed_at
+        FROM benchmark_runs
+        ORDER BY started_at DESC;
+        """
+    ).fetchall()
+
+    return list(rows)
+
+
+def get_run(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT
+            id,
+            model_id,
+            mode,
+            status,
+            started_at,
+            completed_at,
+            config_snapshot
+        FROM benchmark_runs
+        WHERE id = ?;
+        """,
+        (run_id,),
+    ).fetchone()
+
+
+def get_responses_for_run(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+) -> list[sqlite3.Row]:
+    rows = conn.execute(
+        """
+        SELECT
+            r.id,
+            r.run_id,
+            r.scenario_id,
+            r.variant_id,
+            r.mode,
+            r.turn_number,
+            r.system_prompt_sent,
+            r.user_prompt_sent,
+            r.raw_response,
+            r.response_tokens,
+            r.latency_ms,
+            r.created_at,
+            s.pillar,
+            s.category,
+            s.jurisdiction,
+            s.difficulty
+        FROM responses r
+        JOIN scenarios s
+            ON r.scenario_id = s.id
+        WHERE r.run_id = ?
+        ORDER BY r.scenario_id, r.variant_id, r.created_at;
+        """,
+        (run_id,),
+    ).fetchall()
+
+    return list(rows)
+
+
+def get_pillar_score(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    pillar: str,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT
+            id,
+            run_id,
+            pillar,
+            score,
+            breakdown_json,
+            notes,
+            created_at
+        FROM pillar_scores
+        WHERE run_id = ? AND pillar = ?;
+        """,
+        (run_id, pillar),
+    ).fetchone()

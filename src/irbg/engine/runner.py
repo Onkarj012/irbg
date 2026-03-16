@@ -22,8 +22,10 @@ from irbg.engine.variant_generator import (
     generate_prompts_for_template,
     generate_single_prompt_for_variant,
 )
+from irbg.scenarios.discovery import load_template_files
 from irbg.scenarios.loader import load_scenario
 from irbg.scenarios.template_loader import load_scenario_template
+from irbg.scenarios.template_models import RenderedPrompt
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,18 @@ class RunBatchResult:
     scenario_id: str
     mode: str
     total_count: int
+    success_count: int
+    failure_count: int
+
+
+@dataclass(frozen=True)
+class RunFolderResult:
+    run_id: str
+    model_alias: str
+    folder_path: str
+    mode: str
+    scenario_count: int
+    total_prompt_count: int
     success_count: int
     failure_count: int
 
@@ -285,28 +299,14 @@ def run_all_template_variants(
         )
 
         for rendered in rendered_prompts:
-            provider_response = client.chat(
+            provider_response = _execute_rendered_prompt(
+                client=client,
+                conn=conn,
+                run_id=run_id,
                 model_id=model.model_id,
-                system_prompt=rendered.system_prompt,
-                user_prompt=rendered.user_prompt,
+                rendered=rendered,
                 temperature=model.temperature,
                 max_tokens=model.max_tokens,
-            )
-
-            insert_response(
-                conn,
-                run_id=run_id,
-                scenario_id=template.id,
-                variant_id=rendered.variant_id,
-                mode=mode,
-                turn_number=1,
-                system_prompt_sent=rendered.system_prompt,
-                user_prompt_sent=rendered.user_prompt,
-                raw_response=provider_response.text
-                if provider_response.success
-                else None,
-                response_tokens=provider_response.total_tokens,
-                latency_ms=provider_response.latency_ms,
             )
 
             if provider_response.success:
@@ -331,6 +331,142 @@ def run_all_template_variants(
     finally:
         client.close()
         conn.close()
+
+
+def run_template_folder(
+    *,
+    model_alias: str,
+    folder_path: Path,
+    db_path: Path,
+    mode: str = "baseline",
+) -> RunFolderResult:
+    model = get_model_config(model_alias)
+    scenario_files = load_template_files(folder_path)
+
+    client = _build_client_from_env()
+    conn = connect(DbConfig(path=db_path))
+
+    success_count = 0
+    failure_count = 0
+    total_prompt_count = 0
+
+    try:
+        upsert_model(
+            conn,
+            id=model.alias,
+            name=model.name,
+            provider=model.provider,
+            model_id=model.model_id,
+        )
+
+        config_snapshot = json.dumps(
+            {
+                "model_alias": model.alias,
+                "provider_model_id": model.model_id,
+                "folder_path": str(folder_path),
+                "mode": mode,
+                "scenario_file_count": len(scenario_files),
+            }
+        )
+
+        run_id = create_benchmark_run(
+            conn,
+            model_id=model.alias,
+            mode=mode,
+            status="running",
+            config_snapshot=config_snapshot,
+        )
+
+        for scenario_file in scenario_files:
+            template = load_scenario_template(scenario_file)
+
+            upsert_scenario_record(
+                conn,
+                id=template.id,
+                pillar=template.pillar,
+                category=template.category,
+                jurisdiction=template.jurisdiction,
+                difficulty=template.difficulty,
+            )
+
+            rendered_prompts = generate_prompts_for_template(
+                template,
+                mode=mode,
+            )
+
+            total_prompt_count += len(rendered_prompts)
+
+            for rendered in rendered_prompts:
+                provider_response = _execute_rendered_prompt(
+                    client=client,
+                    conn=conn,
+                    run_id=run_id,
+                    model_id=model.model_id,
+                    rendered=rendered,
+                    temperature=model.temperature,
+                    max_tokens=model.max_tokens,
+                )
+
+                if provider_response.success:
+                    success_count += 1
+                else:
+                    failure_count += 1
+
+        if failure_count == 0:
+            mark_benchmark_run_completed(conn, run_id=run_id)
+        else:
+            mark_benchmark_run_failed(conn, run_id=run_id)
+
+        return RunFolderResult(
+            run_id=run_id,
+            model_alias=model.alias,
+            folder_path=str(folder_path),
+            mode=mode,
+            scenario_count=len(scenario_files),
+            total_prompt_count=total_prompt_count,
+            success_count=success_count,
+            failure_count=failure_count,
+        )
+    finally:
+        client.close()
+        conn.close()
+
+
+def _execute_rendered_prompt(
+    *,
+    client: OpenRouterClient,
+    conn,
+    run_id: str,
+    model_id: str,
+    rendered: RenderedPrompt,
+    temperature: float,
+    max_tokens: int,
+):
+    provider_response = client.chat(
+        model_id=model_id,
+        system_prompt=rendered.system_prompt,
+        user_prompt=rendered.user_prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+    insert_response(
+        conn,
+        run_id=run_id,
+        scenario_id=rendered.scenario_id,
+        variant_id=rendered.variant_id,
+        mode=rendered.mode,
+        turn_number=1,
+        system_prompt_sent=rendered.system_prompt,
+        user_prompt_sent=rendered.user_prompt,
+        raw_response=provider_response.text
+        if provider_response.success
+        else None,
+        response_tokens=provider_response.total_tokens,
+        latency_ms=provider_response.latency_ms,
+    )
+
+    return provider_response
 
 
 def _build_client_from_env() -> OpenRouterClient:

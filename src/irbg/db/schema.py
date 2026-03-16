@@ -81,4 +81,20 @@ def create_tables(conn: sqlite3.Connection) -> None:
         """
     )
 
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pillar_scores (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            pillar TEXT NOT NULL,
+            score REAL NOT NULL,
+            breakdown_json TEXT,
+            notes TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE (run_id, pillar),
+            FOREIGN KEY (run_id) REFERENCES benchmark_runs (id)
+        );
+        """
+    )
+
     conn.commit()
