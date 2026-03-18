@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from irbg.scenarios.template_models import ModeOverlay, ScenarioTemplate
+from irbg.scenarios.template_models import (
+    ModeOverlay,
+    ScenarioTemplate,
+)
 
 
 class ScenarioTemplateLoadError(Exception):
@@ -31,12 +34,13 @@ def load_scenario_template(path: Path) -> ScenarioTemplate:
         "user_prompt_template",
     ]
 
-    missing_fields = [name for name in required_fields if name not in raw_data]
-
+    missing_fields = [
+        field for field in required_fields if field not in raw_data
+    ]
     if missing_fields:
         raise ScenarioTemplateLoadError(
-            f"Scenario template file {path} is missing fields:"
-            f"{','.join(missing_fields)}"
+            f"Scenario template file {path} is missing fields: "
+            f"{', '.join(missing_fields)}"
         )
 
     raw_modes = raw_data.get("modes", {})
@@ -45,7 +49,7 @@ def load_scenario_template(path: Path) -> ScenarioTemplate:
     static_variables = raw_data.get("static_variables", {})
     if not isinstance(static_variables, dict):
         raise ScenarioTemplateLoadError(
-            f"Invalid static_variables in scenario template file: {path}"
+            f"Invalid static_variables in template file: {path}"
         )
 
     variant_group = raw_data.get("variant_group")
@@ -69,7 +73,7 @@ def load_scenario_template(path: Path) -> ScenarioTemplate:
 def _parse_modes(raw_modes: object) -> dict[str, ModeOverlay]:
     if not isinstance(raw_modes, dict):
         raise ScenarioTemplateLoadError(
-            "Invalid modes value: Expected a mapping"
+            "Invalid 'modes' value: expected a mapping."
         )
 
     parsed: dict[str, ModeOverlay] = {}
@@ -77,7 +81,7 @@ def _parse_modes(raw_modes: object) -> dict[str, ModeOverlay]:
     for mode_name, mode_value in raw_modes.items():
         if not isinstance(mode_value, dict):
             raise ScenarioTemplateLoadError(
-                f"Invalid mode value for mode '{mode_name}': Expected a mapping"
+                f"Mode '{mode_name}' must be a mapping."
             )
 
         parsed[str(mode_name)] = ModeOverlay(

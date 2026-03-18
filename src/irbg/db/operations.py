@@ -264,6 +264,43 @@ def upsert_pillar_score(
     conn.commit()
 
 
+def upsert_irbg_score(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    composite_score: float,
+    grade: str,
+    breakdown_json: str | None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO irbg_scores (
+            id,
+            run_id,
+            composite_score,
+            grade,
+            breakdown_json,
+            created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(run_id) DO UPDATE SET
+            composite_score = excluded.composite_score,
+            grade = excluded.grade,
+            breakdown_json = excluded.breakdown_json,
+            created_at = excluded.created_at;
+        """,
+        (
+            new_id(),
+            run_id,
+            composite_score,
+            grade,
+            breakdown_json,
+            now_utc_iso(),
+        ),
+    )
+    conn.commit()
+
+
 def list_benchmark_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     rows = conn.execute(
         """
@@ -360,4 +397,50 @@ def get_pillar_score(
         WHERE run_id = ? AND pillar = ?;
         """,
         (run_id, pillar),
+    ).fetchone()
+
+
+def get_all_pillar_scores(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+) -> list[sqlite3.Row]:
+    rows = conn.execute(
+        """
+        SELECT
+            id,
+            run_id,
+            pillar,
+            score,
+            breakdown_json,
+            notes,
+            created_at
+        FROM pillar_scores
+        WHERE run_id = ?
+        ORDER BY pillar;
+        """,
+        (run_id,),
+    ).fetchall()
+
+    return list(rows)
+
+
+def get_irbg_score(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT
+            id,
+            run_id,
+            composite_score,
+            grade,
+            breakdown_json,
+            created_at
+        FROM irbg_scores
+        WHERE run_id = ?;
+        """,
+        (run_id,),
     ).fetchone()

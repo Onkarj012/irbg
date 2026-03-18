@@ -97,4 +97,18 @@ def create_tables(conn: sqlite3.Connection) -> None:
         """
     )
 
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS irbg_scores (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL UNIQUE,
+            composite_score REAL NOT NULL,
+            grade TEXT NOT NULL,
+            breakdown_json TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (run_id) REFERENCES benchmark_runs (id)
+        );
+        """
+    )
+
     conn.commit()
