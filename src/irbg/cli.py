@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+from dataclasses import asdict
 from pathlib import Path
 
 import click
@@ -10,7 +12,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from irbg.config import ConfigError, load_models_config
-from irbg.db.operations import DbConfig, connect
+from irbg.db.operations import DbConfig, connect, list_benchmark_runs
 from irbg.db.schema import create_tables
 from irbg.demographics import DemographicsError, get_variant_group
 from irbg.engine.prompt_builder import PromptBuildError
@@ -19,15 +21,18 @@ from irbg.engine.runner import (
     run_all_template_variants,
     run_single_scenario,
     run_single_template_variant,
+    run_template_folder,
 )
 from irbg.engine.variant_generator import (
     VariantGenerationError,
     generate_single_prompt_for_variant,
 )
+from irbg.scenarios.discovery import ScenarioDiscoveryError
 from irbg.scenarios.template_loader import (
     ScenarioTemplateLoadError,
     load_scenario_template,
 )
+from irbg.scoring.p1 import P1ScoringError, score_p1_run
 
 console = Console()
 
@@ -37,7 +42,8 @@ def main() -> None:
     """
     IRBG (Institutional Readiness & Bias Benchmark for Governance)
 
-    CLI for database setup, provider checks, and benchmark execution.
+    CLI for database setup, provider checks, benchmark execution,
+    and scoring.
     """
     load_dotenv()
 
@@ -61,9 +67,6 @@ def _ensure_database(db_path: Path) -> None:
     help="SQLite database file path.",
 )
 def init_db(db_path: Path) -> None:
-    """
-    Create the SQLite database and required tables.
-    """
     if str(db_path).strip() == "":
         raise click.ClickException("db-path cannot be empty")
 
@@ -75,9 +78,6 @@ def init_db(db_path: Path) -> None:
 
 @main.command("list-models")
 def list_models() -> None:
-    """
-    Display configured model aliases from config/models.yaml.
-    """
     try:
         models = load_models_config()
     except ConfigError as exc:
@@ -100,6 +100,44 @@ def list_models() -> None:
     console.print(table)
 
 
+@main.command("list-runs")
+@click.option(
+    "--db-path",
+    type=click.Path(path_type=Path),
+    default=Path("./irbg.sqlite"),
+    show_default=True,
+    help="SQLite database file path.",
+)
+def list_runs(db_path: Path) -> None:
+    _ensure_database(db_path)
+
+    conn = connect(DbConfig(path=db_path))
+    try:
+        rows = list_benchmark_runs(conn)
+    finally:
+        conn.close()
+
+    table = Table(title="Benchmark Runs")
+    table.add_column("Run ID", style="cyan")
+    table.add_column("Model", style="magenta")
+    table.add_column("Mode", style="yellow")
+    table.add_column("Status", style="green")
+    table.add_column("Started At", style="blue")
+    table.add_column("Completed At", style="blue")
+
+    for row in rows:
+        table.add_row(
+            str(row["id"]),
+            str(row["model_id"]),
+            str(row["mode"]),
+            str(row["status"]),
+            str(row["started_at"]),
+            str(row["completed_at"] or "-"),
+        )
+
+    console.print(table)
+
+
 @main.command("list-variants")
 @click.option(
     "--group",
@@ -108,9 +146,6 @@ def list_models() -> None:
     help="Variant group from config/demographics.yaml",
 )
 def list_variants(group_name: str) -> None:
-    """
-    Display demographic variants for a given group.
-    """
     try:
         variants = get_variant_group(group_name)
     except DemographicsError as exc:
@@ -152,9 +187,6 @@ def ping_openrouter(
     model_alias: str,
     message: str,
 ) -> None:
-    """
-    Send a simple test prompt to OpenRouter and print the response.
-    """
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise click.ClickException(
@@ -233,9 +265,6 @@ def run_once(
     db_path: Path,
     mode: str,
 ) -> None:
-    """
-    Run a simple scenario end-to-end and store the response in SQLite.
-    """
     _ensure_database(db_path)
 
     try:
@@ -290,9 +319,6 @@ def render_template(
     variant_id: str,
     mode: str,
 ) -> None:
-    """
-    Render a template scenario for a specific demographic variant.
-    """
     try:
         template = load_scenario_template(scenario_file)
         rendered = generate_single_prompt_for_variant(
@@ -370,9 +396,6 @@ def run_template_variant(
     db_path: Path,
     mode: str,
 ) -> None:
-    """
-    Run one rendered template variant and store the response in SQLite.
-    """
     _ensure_database(db_path)
 
     try:
@@ -442,9 +465,6 @@ def run_template_group(
     db_path: Path,
     mode: str,
 ) -> None:
-    """
-    Run all demographic variants for a template scenario.
-    """
     _ensure_database(db_path)
 
     try:
@@ -473,6 +493,152 @@ def run_template_group(
     console.print(f"[bold]Total:[/bold] {result.total_count}")
     console.print(f"[bold]Succeeded:[/bold] {result.success_count}")
     console.print(f"[bold]Failed:[/bold] {result.failure_count}")
+
+
+@main.command("run-template-folder")
+@click.option(
+    "--model",
+    "model_alias",
+    required=True,
+    help="Model alias from config/models.yaml",
+)
+@click.option(
+    "--scenario-folder",
+    type=click.Path(exists=True, path_type=Path),
+    required=True,
+    help="Folder containing template scenario JSON files.",
+)
+@click.option(
+    "--db-path",
+    type=click.Path(path_type=Path),
+    default=Path("./irbg.sqlite"),
+    show_default=True,
+    help="SQLite database file path.",
+)
+@click.option(
+    "--mode",
+    default="baseline",
+    show_default=True,
+    help="Execution mode label to store with the run.",
+)
+def run_template_folder_cmd(
+    model_alias: str,
+    scenario_folder: Path,
+    db_path: Path,
+    mode: str,
+) -> None:
+    _ensure_database(db_path)
+
+    try:
+        result = run_template_folder(
+            model_alias=model_alias,
+            folder_path=scenario_folder,
+            db_path=db_path,
+            mode=mode,
+        )
+    except (
+        ConfigError,
+        RuntimeError,
+        ScenarioDiscoveryError,
+        ScenarioTemplateLoadError,
+        VariantGenerationError,
+        DemographicsError,
+        PromptBuildError,
+        ValueError,
+    ) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    console.print("[green]Template folder run finished[/green]")
+    console.print(f"[bold]Run ID:[/bold] {result.run_id}")
+    console.print(f"[bold]Model Alias:[/bold] {result.model_alias}")
+    console.print(f"[bold]Folder:[/bold] {result.folder_path}")
+    console.print(f"[bold]Mode:[/bold] {result.mode}")
+    console.print(f"[bold]Scenarios:[/bold] {result.scenario_count}")
+    console.print(
+        f"[bold]Total Prompt Count:[/bold] {result.total_prompt_count}"
+    )
+    console.print(f"[bold]Succeeded:[/bold] {result.success_count}")
+    console.print(f"[bold]Failed:[/bold] {result.failure_count}")
+
+
+@main.command("score-p1-run")
+@click.option(
+    "--run-id",
+    required=True,
+    help="Benchmark run ID to score.",
+)
+@click.option(
+    "--db-path",
+    type=click.Path(path_type=Path),
+    default=Path("./irbg.sqlite"),
+    show_default=True,
+    help="SQLite database file path.",
+)
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Optional path to save the JSON score report.",
+)
+def score_p1_run_cmd(
+    run_id: str,
+    db_path: Path,
+    output: Path | None,
+) -> None:
+    _ensure_database(db_path)
+
+    try:
+        result = score_p1_run(
+            db_path=db_path,
+            run_id=run_id,
+        )
+    except P1ScoringError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    summary = Table(title="P1 Run Score")
+    summary.add_column("Field", style="cyan")
+    summary.add_column("Value", style="magenta")
+    summary.add_row("Run ID", result.run_id)
+    summary.add_row("Model", result.model_alias)
+    summary.add_row("Mode", result.mode)
+    summary.add_row("Scenario Count", str(result.scenario_count))
+    summary.add_row("Overall Score", f"{result.overall_score:.2f}")
+
+    console.print(summary)
+
+    detail = Table(title="Scenario Breakdown")
+    detail.add_column("Scenario ID", style="cyan")
+    detail.add_column("Category", style="green")
+    detail.add_column("Decision", style="yellow")
+    detail.add_column("Length", style="yellow")
+    detail.add_column("Sentiment", style="yellow")
+    detail.add_column("Total", style="magenta")
+    detail.add_column("Majority", style="blue")
+    detail.add_column("Outliers", style="red")
+
+    for item in result.scenarios:
+        outliers = ", ".join(item.outlier_variants) or "-"
+        detail.add_row(
+            item.scenario_id,
+            item.category,
+            f"{item.decision_score:.2f}",
+            f"{item.length_score:.2f}",
+            f"{item.sentiment_score:.2f}",
+            f"{item.total_score:.2f}",
+            item.majority_decision,
+            outliers,
+        )
+
+    console.print(detail)
+
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps(asdict(result), indent=2),
+        )
+        console.print(
+            f"[green]Saved JSON score report to[/green] {output.resolve()}"
+        )
 
 
 if __name__ == "__main__":
