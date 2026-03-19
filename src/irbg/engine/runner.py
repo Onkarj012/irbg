@@ -18,6 +18,7 @@ from irbg.db.operations import (
     upsert_scenario_record,
 )
 from irbg.engine.provider import OpenRouterClient
+from irbg.engine.types import ChatMessage
 from irbg.engine.variant_generator import (
     generate_prompts_for_template,
     generate_single_prompt_for_variant,
@@ -199,31 +200,46 @@ def run_single_template_variant(
             config_snapshot=config_snapshot,
         )
 
-        provider_response = client.chat(
-            model_id=model.model_id,
-            system_prompt=rendered.system_prompt,
-            user_prompt=rendered.user_prompt,
-            temperature=model.temperature,
-            max_tokens=model.max_tokens,
-        )
+        if mode == "adversarial" and template.adversarial_turns:
+            response_ids, success, error = _execute_adversarial_sequence(
+                client=client,
+                conn=conn,
+                run_id=run_id,
+                model_id=model.model_id,
+                rendered=rendered,
+                adversarial_turns=template.adversarial_turns,
+                temperature=model.temperature,
+                max_tokens=model.max_tokens,
+            )
+            response_id = response_ids[-1]
+        else:
+            provider_response = client.chat(
+                model_id=model.model_id,
+                system_prompt=rendered.system_prompt,
+                user_prompt=rendered.user_prompt,
+                temperature=model.temperature,
+                max_tokens=model.max_tokens,
+            )
 
-        response_id = insert_response(
-            conn,
-            run_id=run_id,
-            scenario_id=template.id,
-            variant_id=rendered.variant_id,
-            mode=mode,
-            turn_number=1,
-            system_prompt_sent=rendered.system_prompt,
-            user_prompt_sent=rendered.user_prompt,
-            raw_response=provider_response.text
-            if provider_response.success
-            else None,
-            response_tokens=provider_response.total_tokens,
-            latency_ms=provider_response.latency_ms,
-        )
+            response_id = insert_response(
+                conn,
+                run_id=run_id,
+                scenario_id=template.id,
+                variant_id=rendered.variant_id,
+                mode=mode,
+                turn_number=1,
+                system_prompt_sent=rendered.system_prompt,
+                user_prompt_sent=rendered.user_prompt,
+                raw_response=provider_response.text
+                if provider_response.success
+                else None,
+                response_tokens=provider_response.total_tokens,
+                latency_ms=provider_response.latency_ms,
+            )
+            success = provider_response.success
+            error = provider_response.error
 
-        if provider_response.success:
+        if success:
             mark_benchmark_run_completed(conn, run_id=run_id)
         else:
             mark_benchmark_run_failed(conn, run_id=run_id)
@@ -233,8 +249,8 @@ def run_single_template_variant(
             response_id=response_id,
             model_alias=model.alias,
             scenario_id=template.id,
-            success=provider_response.success,
-            error=provider_response.error,
+            success=success,
+            error=error,
         )
     finally:
         client.close()
@@ -252,7 +268,7 @@ def run_all_template_variants(
     template = load_scenario_template(scenario_file)
     rendered_prompts = generate_prompts_for_template(
         template,
-        mode=mode,
+        mode=mode if mode != "adversarial" else "baseline",
     )
 
     client = _build_client_from_env()
@@ -299,17 +315,30 @@ def run_all_template_variants(
         )
 
         for rendered in rendered_prompts:
-            provider_response = _execute_rendered_prompt(
-                client=client,
-                conn=conn,
-                run_id=run_id,
-                model_id=model.model_id,
-                rendered=rendered,
-                temperature=model.temperature,
-                max_tokens=model.max_tokens,
-            )
+            if mode == "adversarial" and template.adversarial_turns:
+                _, success, _ = _execute_adversarial_sequence(
+                    client=client,
+                    conn=conn,
+                    run_id=run_id,
+                    model_id=model.model_id,
+                    rendered=rendered,
+                    adversarial_turns=template.adversarial_turns,
+                    temperature=model.temperature,
+                    max_tokens=model.max_tokens,
+                )
+            else:
+                provider_response = _execute_rendered_prompt(
+                    client=client,
+                    conn=conn,
+                    run_id=run_id,
+                    model_id=model.model_id,
+                    rendered=rendered,
+                    temperature=model.temperature,
+                    max_tokens=model.max_tokens,
+                )
+                success = provider_response.success
 
-            if provider_response.success:
+            if success:
                 success_count += 1
             else:
                 failure_count += 1
@@ -391,23 +420,36 @@ def run_template_folder(
 
             rendered_prompts = generate_prompts_for_template(
                 template,
-                mode=mode,
+                mode=mode if mode != "adversarial" else "baseline",
             )
 
             total_prompt_count += len(rendered_prompts)
 
             for rendered in rendered_prompts:
-                provider_response = _execute_rendered_prompt(
-                    client=client,
-                    conn=conn,
-                    run_id=run_id,
-                    model_id=model.model_id,
-                    rendered=rendered,
-                    temperature=model.temperature,
-                    max_tokens=model.max_tokens,
-                )
+                if mode == "adversarial" and template.adversarial_turns:
+                    _, success, _ = _execute_adversarial_sequence(
+                        client=client,
+                        conn=conn,
+                        run_id=run_id,
+                        model_id=model.model_id,
+                        rendered=rendered,
+                        adversarial_turns=template.adversarial_turns,
+                        temperature=model.temperature,
+                        max_tokens=model.max_tokens,
+                    )
+                else:
+                    provider_response = _execute_rendered_prompt(
+                        client=client,
+                        conn=conn,
+                        run_id=run_id,
+                        model_id=model.model_id,
+                        rendered=rendered,
+                        temperature=model.temperature,
+                        max_tokens=model.max_tokens,
+                    )
+                    success = provider_response.success
 
-                if provider_response.success:
+                if success:
                     success_count += 1
                 else:
                     failure_count += 1
@@ -467,6 +509,90 @@ def _execute_rendered_prompt(
     )
 
     return provider_response
+
+
+def _execute_adversarial_sequence(
+    *,
+    client: OpenRouterClient,
+    conn,
+    run_id: str,
+    model_id: str,
+    rendered: RenderedPrompt,
+    adversarial_turns,
+    temperature: float,
+    max_tokens: int,
+) -> tuple[list[str], bool, str | None]:
+    messages = [
+        ChatMessage(role="system", content=rendered.system_prompt),
+        ChatMessage(role="user", content=rendered.user_prompt),
+    ]
+
+    response_ids: list[str] = []
+
+    first_response = client.chat_messages(
+        model_id=model_id,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+    response_ids.append(
+        insert_response(
+            conn,
+            run_id=run_id,
+            scenario_id=rendered.scenario_id,
+            variant_id=rendered.variant_id,
+            mode="adversarial",
+            turn_number=1,
+            system_prompt_sent=rendered.system_prompt,
+            user_prompt_sent=rendered.user_prompt,
+            raw_response=first_response.text
+            if first_response.success
+            else None,
+            response_tokens=first_response.total_tokens,
+            latency_ms=first_response.latency_ms,
+        )
+    )
+
+    if not first_response.success:
+        return response_ids, False, first_response.error
+
+    messages.append(ChatMessage(role="assistant", content=first_response.text))
+
+    turn_number = 2
+    for turn in adversarial_turns:
+        messages.append(ChatMessage(role="user", content=turn.user_prompt))
+
+        response = client.chat_messages(
+            model_id=model_id,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        response_ids.append(
+            insert_response(
+                conn,
+                run_id=run_id,
+                scenario_id=rendered.scenario_id,
+                variant_id=rendered.variant_id,
+                mode="adversarial",
+                turn_number=turn_number,
+                system_prompt_sent=rendered.system_prompt,
+                user_prompt_sent=turn.user_prompt,
+                raw_response=response.text if response.success else None,
+                response_tokens=response.total_tokens,
+                latency_ms=response.latency_ms,
+            )
+        )
+
+        if not response.success:
+            return response_ids, False, response.error
+
+        messages.append(ChatMessage(role="assistant", content=response.text))
+        turn_number += 1
+
+    return response_ids, True, None
 
 
 def _build_client_from_env() -> OpenRouterClient:

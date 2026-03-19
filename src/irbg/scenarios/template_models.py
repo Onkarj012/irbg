@@ -10,6 +10,11 @@ class ModeOverlay:
 
 
 @dataclass(frozen=True)
+class AdversarialTurn:
+    user_prompt: str
+
+
+@dataclass(frozen=True)
 class ScenarioTemplate:
     id: str
     pillar: str
@@ -21,6 +26,7 @@ class ScenarioTemplate:
     static_variables: dict[str, object] = field(default_factory=dict)
     variant_group: str | None = None
     modes: dict[str, ModeOverlay] = field(default_factory=dict)
+    adversarial_turns: list[AdversarialTurn] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

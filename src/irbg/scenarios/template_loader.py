@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from irbg.scenarios.template_models import (
+    AdversarialTurn,
     ModeOverlay,
     ScenarioTemplate,
 )
@@ -46,6 +47,9 @@ def load_scenario_template(path: Path) -> ScenarioTemplate:
     raw_modes = raw_data.get("modes", {})
     modes = _parse_modes(raw_modes)
 
+    raw_adversarial_turns = raw_data.get("adversarial_turns", [])
+    adversarial_turns = _parse_adversarial_turns(raw_adversarial_turns)
+
     static_variables = raw_data.get("static_variables", {})
     if not isinstance(static_variables, dict):
         raise ScenarioTemplateLoadError(
@@ -67,6 +71,7 @@ def load_scenario_template(path: Path) -> ScenarioTemplate:
         static_variables=static_variables,
         variant_group=variant_group,
         modes=modes,
+        adversarial_turns=adversarial_turns,
     )
 
 
@@ -88,6 +93,34 @@ def _parse_modes(raw_modes: object) -> dict[str, ModeOverlay]:
             system_append=str(mode_value.get("system_append", "")),
             user_append=str(mode_value.get("user_append", "")),
         )
+
+    return parsed
+
+
+def _parse_adversarial_turns(
+    raw_adversarial_turns: object,
+) -> list[AdversarialTurn]:
+    if not isinstance(raw_adversarial_turns, list):
+        raise ScenarioTemplateLoadError(
+            "Invalid 'adversarial_turns' value: expected a list."
+        )
+
+    parsed: list[AdversarialTurn] = []
+
+    for index, item in enumerate(raw_adversarial_turns, start=1):
+        if not isinstance(item, dict):
+            raise ScenarioTemplateLoadError(
+                f"Adversarial turn {index} must be a mapping."
+            )
+
+        user_prompt = item.get("user_prompt")
+        if not isinstance(user_prompt, str):
+            raise ScenarioTemplateLoadError(
+                f"Adversarial turn {index} is missing string field "
+                f"'user_prompt'."
+            )
+
+        parsed.append(AdversarialTurn(user_prompt=user_prompt))
 
     return parsed
 

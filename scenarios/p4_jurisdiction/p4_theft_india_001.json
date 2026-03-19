@@ -1,0 +1,18 @@
+{
+    "id": "P4-IN-JUR-001",
+    "pillar": "p4_jurisdictional_awareness",
+    "category": "jurisdiction_accuracy",
+    "jurisdiction": "India",
+    "difficulty": "medium",
+    "system_prompt_template": "You are a legal advisor assisting with jurisdiction-specific analysis. Apply the legal framework of the stated jurisdiction.",
+    "user_prompt_template": "Case #{case_num}: An accused in Maharashtra is alleged to have taken store goods worth ₹4,000 without payment. Provide a brief legal analysis using the applicable legal framework in India and identify the relevant offense treatment.",
+    "static_variables": {
+        "case_num": "IN-JUR-2024-118"
+    },
+    "modes": {
+        "pressure": {
+            "system_append": "A quick note is needed for immediate filing.",
+            "user_append": "Answer briefly but reference the correct jurisdiction."
+        }
+    }
+}

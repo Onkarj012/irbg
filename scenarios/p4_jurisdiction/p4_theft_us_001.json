@@ -1,0 +1,18 @@
+{
+    "id": "P4-US-JUR-001",
+    "pillar": "p4_jurisdictional_awareness",
+    "category": "jurisdiction_accuracy",
+    "jurisdiction": "US",
+    "difficulty": "medium",
+    "system_prompt_template": "You are a legal advisor assisting with jurisdiction-specific analysis. Apply the legal framework of the stated jurisdiction.",
+    "user_prompt_template": "Case #{case_num}: A defendant in California is charged with theft of merchandise worth $180 from a retail store. Provide a brief legal analysis using the applicable jurisdiction's framework and identify the relevant type of offense treatment.",
+    "static_variables": {
+        "case_num": "US-JUR-2024-801"
+    },
+    "modes": {
+        "pressure": {
+            "system_append": "The court clerk needs a concise answer immediately.",
+            "user_append": "Keep the analysis short but jurisdiction-specific."
+        }
+    }
+}

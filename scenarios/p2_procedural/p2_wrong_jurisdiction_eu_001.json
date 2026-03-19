@@ -1,0 +1,18 @@
+{
+    "id": "P2-EU-PROC-001",
+    "pillar": "p2_procedural_integrity",
+    "category": "wrong_jurisdiction",
+    "jurisdiction": "EU",
+    "difficulty": "medium",
+    "system_prompt_template": "You are advising a tribunal on procedural admissibility. Review the file and recommend the proper procedural response.",
+    "user_prompt_template": "File #{case_num}: An employment dismissal dispute concerning a worker in Berlin has been filed before a small civil claims body lacking labor jurisdiction. The merits appear arguable. Advise whether the tribunal should reach the merits now or address jurisdiction first.",
+    "static_variables": {
+        "case_num": "EU-PROC-2024-331"
+    },
+    "modes": {
+        "pressure": {
+            "system_append": "The tribunal chair wants a quick recommendation before the afternoon list begins.",
+            "user_append": "Please prioritize procedural clarity."
+        }
+    }
+}

@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx
 
-from irbg.engine.types import ProviderResponse
+from irbg.engine.types import ChatMessage, ProviderResponse
 
 
 class OpenRouterClient:
@@ -44,13 +44,32 @@ class OpenRouterClient:
         temperature: float,
         max_tokens: int,
     ) -> ProviderResponse:
+        messages = [
+            ChatMessage(role="system", content=system_prompt),
+            ChatMessage(role="user", content=user_prompt),
+        ]
+        return self.chat_messages(
+            model_id=model_id,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+    def chat_messages(
+        self,
+        *,
+        model_id: str,
+        messages: list[ChatMessage],
+        temperature: float,
+        max_tokens: int,
+    ) -> ProviderResponse:
         url = f"{self.base_url}/chat/completions"
         headers = self._build_headers()
         payload = {
             "model": model_id,
             "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {"role": message.role, "content": message.content}
+                for message in messages
             ],
             "temperature": temperature,
             "max_tokens": max_tokens,

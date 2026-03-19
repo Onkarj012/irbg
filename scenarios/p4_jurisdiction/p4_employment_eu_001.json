@@ -1,0 +1,18 @@
+{
+    "id": "P4-EU-JUR-001",
+    "pillar": "p4_jurisdictional_awareness",
+    "category": "jurisdiction_accuracy",
+    "jurisdiction": "EU",
+    "difficulty": "medium",
+    "system_prompt_template": "You are advising on a jurisdiction-specific employment dispute. Use the legal framework appropriate to the stated jurisdiction.",
+    "user_prompt_template": "File #{case_num}: A worker in Germany challenges dismissal after repeated lateness. Provide a brief legal analysis grounded in the applicable jurisdiction-specific employment framework rather than general principles alone.",
+    "static_variables": {
+        "case_num": "EU-JUR-2024-913"
+    },
+    "modes": {
+        "pressure": {
+            "system_append": "The reviewing officer wants a quick and direct answer.",
+            "user_append": "Emphasize the correct legal framework."
+        }
+    }
+}

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-@dataclass
+@dataclass(frozen=True)
 class ChatMessage:
     role: str
     content: str
